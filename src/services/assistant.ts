@@ -1,4 +1,3 @@
-
 import { LlmEngine, LlmResponse, LlmChunk } from 'multi-llm-ts'
 import { removeMarkdown } from '@excalidraw/markdown-to-text'
 import { Configuration } from 'types/config'
@@ -16,6 +15,7 @@ export interface AssistantCompletionOpts extends GenerationOpts {
   attachment?: Attachment
   expert?: Expert
   systemInstructions?: string
+  searchQuery?: string
 }
 
 export default class extends Generator {
@@ -65,7 +65,6 @@ export default class extends Generator {
   }
 
   async prompt(prompt: string, opts: AssistantCompletionOpts, callback: (chunk: LlmChunk) => void, beforeTitleCallback?: () => void): Promise<void> {
-
     // check
     prompt = prompt.trim()
     if (prompt === '') {
@@ -82,8 +81,11 @@ export default class extends Generator {
       sources: true,
       systemInstructions: this.config.instructions.default,
       citations: true,
+      searchQuery: prompt  // 确保搜索查询从一开始就被设置
     }
-    opts = {...defaults, ...opts }
+    opts = { ...defaults, ...opts }
+    
+    console.log('详细的opts对象:', opts)
 
     // we need a chat
     if (this.chat === null) {
@@ -141,13 +143,15 @@ export default class extends Generator {
     const hadPlugins = this.llm.plugins.length > 0
     let rc: GenerationResult = await this._prompt(opts, callback)
 
+    console.log('[Ollama Debug] result text:', rc)
+
     // check if streaming is not supported
     if (rc === 'streaming_not_supported') {
       this.chat.disableStreaming = true
       rc = await this._prompt(opts, callback)
     }
 
-    // titling
+    // titlingx
     if (rc !== 'success') {
       opts.titling = false
     }
@@ -166,6 +170,21 @@ export default class extends Generator {
   }
 
   async _prompt(opts: AssistantCompletionOpts, callback: (chunk: LlmChunk) => void): Promise<GenerationResult> {
+    // 插件执行前的检查
+    if (this.llm.plugins.length > 0) {
+      const lastUserMessage = this.chat.messages.findLast(m => m.role === 'user')
+
+      // 确保有消息内容
+      if (!lastUserMessage?.content?.trim()) {
+        console.warn('[Assistant] Cannot execute plugins: No valid query content')
+        return 'error'
+      }
+
+      // 确保搜索参数存在且有效
+      if (!opts.searchQuery?.trim()) {
+        opts.searchQuery = lastUserMessage.content.trim()
+      }
+    }
 
     // normal case: we stream
     if (!this.chat.disableStreaming) {
@@ -207,15 +226,19 @@ export default class extends Generator {
   }
 
   async attach(file: Attachment) {
-
-    // make sure last message is from user else create it
-    if (this.chat.lastMessage()?.role !== 'user') {
-      this.chat.addMessage(new Message('user', ''))
+    // 确保文件存在
+    if (!file) {
+      console.warn('[Assistant] No file to attach')
+      return
     }
 
-    // now attach
-    this.chat.lastMessage().attach(file)
+    // 如果最后一条消息不是用户消息，创建新的用户消息
+    if (this.chat.lastMessage()?.role !== 'user') {
+      this.chat.addMessage(new Message('user', 'Attached file for analysis'))
+    }
 
+    // 附加文件
+    this.chat.lastMessage().attach(file)
   }
 
   async getTitle() {

@@ -1,7 +1,7 @@
 {
   "name": "witsy",
   "productName": "Witsy",
-  "version": "1.40.0",
+  "version": "1.41.0",
   "description": "Witsy: desktop AI assistant",
   "repository": {
     "type": "git",
@@ -105,7 +105,7 @@
     "html2canvas": "^1.4.1",
     "html2pdf.js": "github:ssamilg/html2pdf.js#fix/update-html2canvas",
     "icns-lib": "^1.0.1",
-    "katex": "^0.16.15",
+    "katex": "^0.16.17",
     "markdown-it": "^14.1.0",
     "markdown-it-mark": "^4.0.0",
     "minimatch": "^10.0.1",

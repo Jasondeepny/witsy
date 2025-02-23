@@ -617,16 +617,11 @@ ipcMain.on('mcp-get-servers', (event) => {
 });
 
 ipcMain.handle('mcp-edit-server', async (_, server): Promise<boolean> => {
-  return mcp ? await mcp.editServer(JSON.parse(server)) : false;
+  return mcp ? await mcp.editServer(server) : false;
 });
 
 ipcMain.handle('mcp-delete-server', async (_, uuid): Promise<boolean> => {
   return await mcp?.deleteServer(uuid) || false;
-});
-
-ipcMain.on('mcp-get-install-command', (event, payload) => {
-  const { registry, server } = payload;
-  event.returnValue = mcp ? mcp.getInstallCommand(registry, server) : '';
 });
 
 ipcMain.handle('mcp-install-server', async (_, payload): Promise<boolean> => {
@@ -715,8 +710,15 @@ ipcMain.on('memory-delete', async (event, payload) => {
 });
 
 ipcMain.handle('search-query', async (_, payload) => {
+  console.log('[Ollama Debug] Search query received:', payload)
   const { query, num } = payload;
   const localSearch = new LocalSearch();
-  const results = localSearch.search(query, num);
-  return results;
+  try { 
+    const results = localSearch.search(query, num);
+    console.log('[Ollama Debug] Search results:', results)
+    return results;
+  } catch (error) {
+    console.error('[Ollama Debug] Search error:', error)
+    throw error
+  }
 });

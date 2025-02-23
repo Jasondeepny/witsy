@@ -21,52 +21,12 @@ let osxPackagerConfig = {}
 const isDarwin = process.platform == 'darwin';
 const isMas = isDarwin && process.argv.includes('mas');
 const dmgOptions: MakerDMGConfig = {
-  //appPath: 'actually_not_used',
   icon: './assets/icon.icns',
   background: './assets/dmg_background.png',
   additionalDMGOptions: {
     window: {
       size: { width: 658, height: 492 },
       position: { x: 500, y: 400 },
-    }
-  }
-}
-
-if (isDarwin) {
-  if (!isMas) {
-    osxPackagerConfig = {
-      osxSign: {
-        identity: process.env.IDENTIFY_DARWIN_CODE,
-        provisioningProfile: './build/Witsy_Darwin.provisionprofile',
-        optionsForFile: () => { return {
-          hardenedRuntime: true,
-          entitlements: './build/Entitlements.darwin.plist'
-        }; },
-      },
-      osxNotarize: {
-        appleId: process.env.APPLE_ID,
-        appleIdPassword: process.env.APPLE_PASSWORD,
-        teamId: process.env.APPLE_TEAM_ID
-      }
-    }
-  } else {
-    osxPackagerConfig = {
-      osxUniversal: {
-      },
-      osxSign: {
-        identity: process.env.IDENTITY_MAS_CODE,
-        provisioningProfile: './build/Witsy_MAS.provisionprofile',
-        optionsForFile: (filePath: string) => { 
-          let entitlements = './build/Entitlements.mas.child.plist'
-          if (filePath.endsWith('Witsy.app')) {
-            entitlements = './build/Entitlements.mas.main.plist'
-          }
-          return {
-            hardenedRuntime: true,
-            entitlements: entitlements
-          };
-        },
-      },
     }
   }
 }
@@ -89,53 +49,20 @@ const config: ForgeConfig = {
       'assets/trayUpdateWhite.png',
       'assets/trayUpdateWhite@2x.png',
       'assets/icon.ico',
-    ],
-    ...osxPackagerConfig,
-    afterCopy: [
-      // sign native modules
-      (buildPath, electronVersion, platform, arch, callback) => {
-        try {
-          // we sign libnut on mas but feature is disabled anyway
-          if (platform === 'darwin' || platform === 'mas') {
-            const binaries = [
-              'node_modules/@nut-tree-fork/libnut-darwin/build/Release/libnut.node'
-            ];
-
-            binaries.forEach((binary) => {
-              const binaryPath = path.join(buildPath, binary);
-              const identify = isMas ? process.env.IDENTITY_MAS_CODE : process.env.IDENTIFY_DARWIN_CODE;
-              if (fs.existsSync(binaryPath)) {
-                console.log(`Signing binary: ${binaryPath}`);
-                execSync(`codesign --deep --force --verbose --sign "${identify}" "${binaryPath}"`, {
-                  stdio: 'inherit',
-                });
-              } else {
-                console.error(`Binary not found: ${binaryPath}`);
-              }
-            });
-          }
-
-          callback();
-        } catch (error) {
-          callback(error);
-        }
-      },
-    ],
+    ]
   },
   rebuildConfig: {},
   makers: [
-    /* xplat  */ new MakerZIP({}, ['linux', 'win32', 'darwin']),
-    /* darwin */ new MakerDMG(dmgOptions, ['darwin']), new MakerPKG({ identity: process.env.IDENTITY_MAS_PKG, }, ['mas']),
-    /* win32  */ new MakerSquirrel({}),
-    /* linux  */ new MakerRpm({}), new MakerDeb({})
+    new MakerZIP({}, ['darwin', 'win32', 'linux']),
+    new MakerDMG(dmgOptions, ['darwin']),
+    new MakerSquirrel({}, ['win32']),
+    new MakerDeb({}, ['linux']),
+    new MakerRpm({}, ['linux'])
   ],
   plugins: [
     new VitePlugin({
-      // `build` can specify multiple entry builds, which can be Main process, Preload scripts, Worker process, etc.
-      // If you are familiar with Vite configuration, it will look really familiar.
       build: [
         {
-          // `entry` is just an alias for `build.lib.entry` in the corresponding file of `config`.
           entry: 'src/main.ts',
           config: 'vite.main.config.ts',
         },
@@ -151,8 +78,6 @@ const config: ForgeConfig = {
         },
       ],
     }),
-    // Fuses are used to enable/disable various Electron functionality
-    // at package time, before code signing the application
     new FusesPlugin({
       version: FuseVersion.V1,
       [FuseV1Options.RunAsNode]: false,
@@ -167,7 +92,6 @@ const config: ForgeConfig = {
     prePackage: async (forgeConfig, platform, arch) => {
       prePackage(platform, arch)
     },
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     packageAfterPrune: async (forgeConfig, buildPath, electronVersion, platform, arch) => {
       const unlink = (bin: string) => {
         const binPath = path.join(buildPath, bin);

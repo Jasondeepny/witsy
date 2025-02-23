@@ -34,7 +34,7 @@
           </thead>
           <tbody>
             <tr v-for="server in servers" :key="server.uuid" :class="{ selected: selected == server }" @click="selected = server" @dblclick="edit(server)">
-              <td class="enabled"><input type="checkbox" :checked="server.state=='enabled'" @change="onEnabled(server)" /></td>
+              <td class="enabled"><input type="checkbox" :checked="server.state=='enabled'" @click="onEnabled(server)" /></td>
               <td>{{ getType(server) }}</td>
               <td>{{ getDescription(server) }}</td>
               <td>
@@ -47,15 +47,15 @@
       </div>
       <div class="actions">
         <button ref="addButton" class="button add" @click.prevent="onAdd"><BIconPlus /></button>
-        <button class="button remove" @click.prevent="onDelete" :disabled="!selected"><BIconDash /></button>
+        <button class="button remove" @click.prevent="onDelete" v-if="servers.length"><BIconDash /></button>
       </div>
       <div style="margin-top: 16px">
-        <button name="reload" @click.prevent="reload">Refresh</button>
-        <button name="restart" @click.prevent="onRestart">Restart client</button>
+        <button @click.prevent="reload">Refresh</button>
+        <button @click.prevent="onRestart">Restart client</button>
       </div>
     </div>
     <ContextMenu v-if="showAddMenu" :on-close="closeAddMenu" :actions="addMenuActions" @action-clicked="handleAddAction" :x="addMenuX" :y="addMenuY" position="above" :teleport="false" />
-    <McpServerEditor ref="editor" :server="selected" @save="onEdited" @install="onInstall" />
+    <McpServerEditor ref="editor" :server="selected" @save="onEdited" />
   </div>
 </template>
 
@@ -158,9 +158,8 @@ const closeAddMenu = () => {
 
 // Modify the onCreate method to handle both types
 const onCreate = (type: string) => {
-  selected.value = {
-    uuid: null,
-    registryId: null,
+  selected.value = { 
+    uuid: null, 
     state: 'enabled', 
     type: type,
     command: '',
@@ -190,7 +189,7 @@ const onDelete = async () => {
     if (result.isConfirmed) {
       loading.value = true
       nextTick(async () => {
-        await window.api.mcp.deleteServer(selected.value.registryId)
+        await window.api.mcp.deleteServer(selected.value.uuid)
         selected.value = null
         load()
       })
@@ -213,14 +212,13 @@ const edit = (server: McpServer) => {
 }
 
 // @ts-expect-error lazy
-const onEdited = async ({ type, command, url, env }) => {
+const onEdited = async ({ type, command, url }) => {
 
   // build a dummy server
   const server: McpServer = {
     uuid: selected.value.uuid,
-    registryId: selected.value.registryId,
     state: selected.value.state,
-    type, command, url, env
+    type, command, url
   }
 
   // edit it
@@ -228,34 +226,6 @@ const onEdited = async ({ type, command, url, env }) => {
   nextTick(async () => {
     await window.api.mcp.editServer(server)
     load()
-  })
-
-}
-
-// @ts-expect-error lazy
-const onInstall = async ({ registry, server }) => {
-
-  loading.value = true
-  nextTick(async () => {
-
-    const rc = await window.api.mcp.installServer(registry, server)
-    if (!rc) {
-      loading.value = false
-      Dialog.show({
-        title: 'Failed to install server',
-        text: 'You can copy the install command to your clipboard and try it in a Terminal.',
-        confirmButtonText: 'Copy',
-        showCancelButton: true,
-      }).then((result) => {
-        if (result.isConfirmed) {
-          const command = window.api.mcp.getInstallCommand(registry, server)
-          navigator.clipboard.writeText(command)
-        }
-      })
-    }
-
-    load()
-
   })
 
 }
@@ -293,7 +263,9 @@ defineExpose({ load })
   }
 
   .sticky-table-container {
-    height: 120px !important;
+    height: auto !important;
+    max-height: 100px !important;
+    margin-bottom: 0px !important;
   }
 
   .list {

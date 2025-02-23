@@ -23,13 +23,13 @@ clean:
 
 mac-arm64:
 	-rm -rf out/*darwin-arm64* out/make/zip/darwin/arm64/*
-	BUILD_NUMBER=$(shell cat $(BUILD_NUMBER_FILE)) npx electron-forge make -p darwin -a arm64
+	CSC_IDENTITY_AUTO_DISCOVERY=false BUILD_NUMBER=$(shell cat $(BUILD_NUMBER_FILE)) npx electron-forge make -p darwin -a arm64
 	cd out/make/zip/darwin/arm64/ ; mv Witsy-darwin-arm64-$(VERSION).zip Witsy-$(VERSION)-darwin-arm64.zip
 	cd out/make ; mv Witsy-$(VERSION)-arm64.dmg Witsy-$(VERSION)-darwin-arm64.dmg
 
 mac-x64:
 	-rm -rf out/*darwin-x64* out/make/zip/darwin/x64/*
-	BUILD_NUMBER=$(shell cat $(BUILD_NUMBER_FILE)) npx electron-forge make -p darwin -a x64
+	CSC_IDENTITY_AUTO_DISCOVERY=false BUILD_NUMBER=$(shell cat $(BUILD_NUMBER_FILE)) npx electron-forge make -p darwin -a x64
 	cd out/make/zip/darwin/x64/ ; mv Witsy-darwin-x64-$(VERSION).zip Witsy-$(VERSION)-darwin-x64.zip
 	cd out/make ; mv Witsy-$(VERSION)-x64.dmg Witsy-$(VERSION)-darwin-x64.dmg
 

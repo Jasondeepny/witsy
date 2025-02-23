@@ -1,4 +1,3 @@
-
 import { EngineCreateOpts, Model, LlmModelOpts } from 'multi-llm-ts'
 import { Shortcut, strDict } from './index'
 import { PluginConfig } from 'plugins/plugin'

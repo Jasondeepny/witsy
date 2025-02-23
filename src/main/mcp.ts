@@ -44,12 +44,10 @@ export default class {
       ...Object.keys(config.mcpServers).reduce((arr: McpServer[], key: string) => {
         arr.push({
           uuid: key.replace('@', ''),
-          registryId: key,
           state: config.plugins.mcp.disabledMcpServers?.includes(key) ? 'disabled' : 'enabled',
           type: 'stdio',
           command: config.mcpServers[key].command,
-          url: config.mcpServers[key].args.join(' '),
-          env: config.mcpServers[key].env
+          url: config.mcpServers[key].args.join(' ')
         })
         return arr
       }, [])
@@ -95,43 +93,20 @@ export default class {
 
   installServer = async (registry: string, server: string): Promise<boolean> => {
 
-    const command = this.getInstallCommand(registry, server)
-    if (!command) return false
-
-    try {
-
-      const before = this.getServers()
-
-      this.monitor?.stop()
-      const result = execSync(command).toString().trim()
+    if (registry === 'smithery') {
+      try {
+      const command = `npx -y @smithery/cli@latest install ${server} --client witsy`
+      const result = execSync(command).toString().trim();
       console.log(result)
-
-      // now we should be able to connect
-      const after = this.getServers()
-      const servers = after.filter(s => !before.find(b => b.uuid === s.uuid))
-      if (servers.length === 1) {
-        await this.connectToServer(servers[0])
-      }
-
-      // done
       return true
-
-    } catch (e) {
-      console.error(`Failed to install MCP server ${server}:`, e)
-    } finally {
-      this.startConfigMonitor()
+      } catch (e) {
+        console.error(`Failed to install MCP server ${server}:`, e)
+      }
     }
-    
+
     // too bad
     return false
     
-  }
-
-  getInstallCommand = (registry: string, server: string): string|null => {
-    if (registry === 'smithery') {
-      return `npx -y @smithery/cli@latest install ${server} --client witsy`
-    }
-    return null
   }
 
   editServer = async (server: McpServer): Promise<boolean> => {
@@ -143,7 +118,6 @@ export default class {
     // create?
     if (server.uuid === null) {
       server.uuid = crypto.randomUUID()
-      server.registryId = server.uuid
       config.plugins.mcp.servers.push(server)
       edited = true
     }
@@ -166,7 +140,7 @@ export default class {
     }
 
     // and in mcp servers
-    const originalMcp = config.mcpServers[server.registryId]
+    const originalMcp = config.mcpServers[server.uuid]
     if (originalMcp) {
 
       // state is outside of mcpServers
@@ -174,11 +148,9 @@ export default class {
         if (!config.plugins.mcp.disabledMcpServers) {
           config.plugins.mcp.disabledMcpServers = []
         }
-        if (!config.plugins.mcp.disabledMcpServers.includes(server.registryId)) {
-          config.plugins.mcp.disabledMcpServers.push(server.registryId)
-        }
-      } else {
-        config.plugins.mcp.disabledMcpServers = config.plugins.mcp.disabledMcpServers.filter((s: string) => s !== server.registryId)
+        config.plugins.mcp.disabledMcpServers.push(server.uuid)
+      } else if (config.plugins.mcp.disabledMcpServers?.includes(server.uuid)) {
+        config.plugins.mcp.disabledMcpServers = config.plugins.mcp.disabledMcpServers.filter((s: string) => s !== server.uuid)
       }
 
       // rest is normal
@@ -298,20 +270,12 @@ export default class {
       //   ...(process.env.PATH ? { PATH: process.env.PATH } : {}),
       // })
 
-      // build command and args
       const command = process.platform === 'win32' ? 'cmd' : server.command
       const args = process.platform === 'win32' ? ['/C', `"${server.command}" ${server.url}`] : server.url.split(' ')
-      let env = process.platform === 'win32' ? server.env : {
+      const env = process.platform === 'win32' ? server.env : {
         ...server.env,
         ...(process.env.PATH ? { PATH: process.env.PATH } : {}),
       }
-
-      // if env is empty, remove it
-      if (Object.keys(env).length === 0) {
-        env = undefined
-      }
-
-      // console.log('MCP Stdio command', process.platform, command, args, env)
 
       const transport = new StdioClientTransport({
         command, args, env, stderr: 'pipe'
@@ -333,7 +297,7 @@ export default class {
       })
 
       client.onerror = (e) => {
-        this.logs[server.uuid].push(e.message)
+        this.logs[server.uuid].push(e)
       }
 
       // disable start and connect

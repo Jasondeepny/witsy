@@ -1,8 +1,8 @@
-
 import { anyDict } from 'types/index'
 import { PluginParameter } from 'multi-llm-ts'
 import Plugin, { PluginConfig } from './plugin'
 import Tavily from '../vendor/tavily'
+import BraveSearch from '../vendor/brave/brave'
 import { convert } from 'html-to-text'
 
 export default class extends Plugin {
@@ -13,8 +13,9 @@ export default class extends Plugin {
 
   isEnabled(): boolean {
     return this.config?.enabled && (
-      (this.config.engine == 'local') ||
-      (this.config.engine == 'tavily' && this.config.tavilyApiKey.trim().length > 0)
+      (this.config.engine === 'local') ||
+      (this.config.engine === 'tavily' && this.config.tavilyApiKey?.trim().length > 0) ||
+      (this.config.engine === 'brave' && this.config.braveApiKey?.trim().length > 0)
     )
   }
 
@@ -46,12 +47,66 @@ export default class extends Plugin {
   }
 
   async execute(parameters: anyDict): Promise<anyDict> {
-    if (this.config.engine === 'local') {
-      return this.local(parameters)
-    } else if (this.config.engine === 'tavily') {
-      return this.tavily(parameters)
-    } else {
-      return { error: 'Invalid engine' }
+    console.log('[Search Plugin] execute:', {
+      engine: this.config.engine,
+      parameters,
+      config: this.config
+    })
+
+    if (!parameters || !parameters.query) {
+      console.error('[Search Plugin] No query provided')
+      return {
+        error: 'No search query provided. Please provide a valid search query.'
+      }
+    }
+
+    try {
+      let result
+      if (this.config.engine === 'local') {
+        result = await this.local(parameters)
+      } else if (this.config.engine === 'tavily') {
+        result = await this.tavily(parameters)
+      } else if (this.config.engine === 'brave') {
+        result = await this.brave(parameters)
+      } else {
+        result = { error: 'Invalid engine' }
+      }
+      console.log('[Search Plugin] Result:', result)
+      return result
+    } catch (error) {
+      console.error('[Search Plugin] Execution error:', error)
+      return { error: error.message }
+    }
+  }
+
+  async brave(parameters: anyDict): Promise<anyDict> {
+    if (!parameters.query) {
+      console.error('[Brave Search] No query provided')
+      return { error: 'No search query provided' }
+    }
+
+    try {
+      if (!this.config.braveApiKey) {
+        console.error('[Brave Search] No API Key configured')
+        return {
+          error: 'Brave API Key is not configured. Please set it in the settings.'
+        }
+      }
+
+      const brave = new BraveSearch(this.config.braveApiKey)
+      const results = await brave.search(parameters.query, {
+        max_results: 5
+      })
+
+      return {
+        query: parameters.query,
+        results: results.results
+      }
+    } catch (error) {
+      console.error('[Brave Search] Error:', error)
+      return {
+        error: `Brave search failed: ${error.message}`
+      }
     }
   }
 
@@ -74,35 +129,48 @@ export default class extends Plugin {
   }
 
   async tavily(parameters: anyDict): Promise<anyDict> {
-    try {
+    // 再次验证参数
+    if (!parameters.query) {
+      console.error('[Tavily Search] No query provided')
+      return { error: 'No search query provided' }
+    }
 
-      // tavily
+    try {
+      // 检查 API Key
+      if (!this.config.tavilyApiKey) {
+        console.error('[Tavily Search] No API Key configured')
+        return {
+          error: 'Tavily API Key is not configured. Please set it in the settings.'
+        }
+      }
+
+      // 使用 Tavily 搜索
       const tavily = new Tavily(this.config.tavilyApiKey)
       const results = await tavily.search(parameters.query, {
-        //include_answer: true,
-        //include_raw_content: true,
+        max_results: 5,
+        include_answer: true,
+        include_raw_content: true,
       })
 
-      // content returned by tavily is bery short
-      for (const result of results.results) {
-        const html = await fetch(result.url).then(response => response.text())
-        result.content = this.htmlToText(html)
-      }
+      console.log('[Tavily Search] Raw results:', results)
 
-      // done
-      const response = {
+      // 处理搜索结果
+      const processedResults = results.results.map(result => ({
+        title: result.title,
+        url: result.url,
+        content: this.truncateContent(result.content || result.raw_content || '')
+      }))
+
+      return {
         query: parameters.query,
-        results: results.results.map(result => ({
-          title: result.title,
-          url: result.url,
-          content: this.truncateContent(result.content)
-        }))
+        results: processedResults,
+        answer: results.answer || ''
       }
-      //console.log('Tavily response:', response)
-      return response
-
     } catch (error) {
-      return { error: error.message }
+      console.error('[Tavily Search] Error:', error)
+      return {
+        error: `Tavily search failed: ${error.message}`
+      }
     }
   }
 

@@ -1,4 +1,3 @@
-
 import { LlmEngine, LlmCompletionOpts, LlmChunk } from 'multi-llm-ts'
 import { Configuration } from '../types/config'
 import { DocRepoQueryResponseItem } from '../types/rag'
@@ -23,30 +22,67 @@ export type GenerationResult =
   'streaming_not_supported' |
   'error'
 
-  export default class Generator {
+interface SearchResult {
+  title: string
+  url: string
+  content: string
+}
+
+interface SearchResponse {
+  query?: string
+  results?: SearchResult[]
+  answer?: string
+  error?: string
+}
+
+export default class Generator {
 
   config: Configuration
   stopGeneration: boolean
-  stream: AsyncIterable<LlmChunk>|null
-  llm: LlmEngine|null
+  stream: AsyncIterable<LlmChunk> | null = null
+  llm: LlmEngine | null = null
 
   static addDateAndTimeToSystemInstr = true
 
   constructor(config: Configuration) {
     this.config = config
-    this.stream = null
     this.stopGeneration = false
-    this.llm = null
   }
 
   async generate(llm: LlmEngine, messages: Message[], opts: GenerationOpts, callback?: (chunk: LlmChunk) => void): Promise<GenerationResult> {
+    console.log('[Generator] Starting generation:', {
+      engine: llm.getName(),
+      message: messages,
+      pluginsEnabled: llm.plugins.length > 0,
+      plugins: llm.plugins.map(p => p.getName())
+    })
+
+    // 插件结果可能会在这里被使用
+    const conversation = this.getConversation(messages)
+
+
+    // 检查插件是否被调用
+    for (const plugin of llm.plugins) {
+      console.log(`[Generator] Checking plugin: ${plugin.getName()}`)
+      if (plugin.getName() === 'search_internet') {
+        console.log('[Generator] Search plugin is available and will be used')
+      }
+    }
+
+    // 在生成器中，检查插件结果是否被使用
+    const pluginResults = await this.runPlugins(llm, messages, opts)
+    console.log('[Generator] Plugin results:', pluginResults)
+
+    // 确保插件结果被添加到消息或上下文中
+    if (pluginResults && pluginResults.length > 0) {
+      conversation.push(...pluginResults)
+    }
 
     // return code
     let rc: GenerationResult = 'success'
 
     // get messages
     const response = messages[messages.length - 1]
-    const conversation = this.getConversation(messages)
 
     try {
 
@@ -54,8 +90,9 @@ export type GenerationResult =
       let sources: DocRepoQueryResponseItem[] = [];
       if (opts.docrepo) {
         const userMessage = conversation[conversation.length - 1];
+        console.log('[Ollama Debug] message', userMessage.content)
         sources = await window.api.docrepo.query(opts.docrepo, userMessage.content);
-        //console.log('Sources', JSON.stringify(sources, null, 2));
+        console.log('[Ollama Debug] Sources', JSON.stringify(sources, null, 2));
         if (sources.length > 0) {
           const context = sources.map((source) => source.content).join('\n\n');
           const prompt = this.config.instructions.docquery.replace('{context}', context).replace('{query}', userMessage.content);
@@ -64,7 +101,7 @@ export type GenerationResult =
       }
 
       // debug
-      //console.log(`Generation with ${llm.plugins.length} plugins and opts ${JSON.stringify(opts)}`)
+      console.log(`[Ollama Debug] Generation with ${llm.plugins.length} plugins and opts ${JSON.stringify(opts)}`)
 
       // now stream
       this.stopGeneration = false
@@ -74,6 +111,7 @@ export type GenerationResult =
         usage: true,
         ...opts
       })
+      console.log('[Generator] Generation started successfully')
       for await (const msg of this.stream) {
         if (this.stopGeneration) {
           response.appendText({ type: 'content', text: '', done: true })
@@ -113,7 +151,7 @@ export type GenerationResult =
       }
 
     } catch (error) {
-      console.error('Error while generating text', error)
+      console.error('[Generator] Generation error:', error)
       if (error.name !== 'AbortError') {
         const message = error.message.toLowerCase()
         
@@ -184,7 +222,6 @@ export type GenerationResult =
 
     // done
     return rc
-
   }
 
   async stop() {
@@ -233,4 +270,88 @@ export type GenerationResult =
     return instructions.replace(/Current date and time is [^.]+/, 'Current date and time is ' + new Date().toLocaleString())
   }
 
+  // 优化延迟重试的实现
+  private delay(ms: number): Promise<void> {
+    return new Promise<void>(resolve => setTimeout(resolve, ms));
+  }
+
+  async runPlugins(llm: LlmEngine, messages: Message[], opts: GenerationOpts): Promise<Message[]> {
+    const pluginResults: Message[] = []
+
+    // 查找最后一条用户消息
+    const userMessage = messages.findLast(msg => msg.role === 'user')
+    if (!userMessage || !userMessage.content?.trim()) {
+      console.warn('[Generator] No valid user message found for plugins')
+      return pluginResults
+    }
+
+    for (const plugin of llm.plugins) {
+      if (plugin.getName() === 'search_internet') {
+        try {
+          console.log('[Generator] Executing search with query:', userMessage.content)
+
+          // 添加重试逻辑
+          let retryCount = 0;
+          let result: SearchResponse;
+
+          while (retryCount < 3) {
+            try {
+              result = await plugin.execute({
+                query: userMessage.content.trim(),
+                ...opts
+              }) as SearchResponse
+
+              if (result && !result.error) {
+                break; // 成功获取结果，跳出重试循环
+              }
+
+              retryCount++;
+              if (retryCount < 3) {
+                await this.delay(1000 * retryCount); // 使用优化后的延迟函数
+              }
+            } catch (err) {
+              console.error(`[Generator] Search attempt ${retryCount + 1} failed:`, err);
+              retryCount++;
+              if (retryCount < 3) {
+                await this.delay(1000 * retryCount);
+              }
+            }
+          }
+
+          if (!result || result.error) {
+            console.warn('[Generator] Search failed after retries:', result?.error || 'No result');
+            // 添加一个系统消息说明搜索失败
+            //pluginResults.push(new Message('system', 'Search operation failed. Proceeding with conversation without search results.'));
+            continue;
+          }
+
+          console.log('[Generator] Raw search result:', result)
+
+          let resultContent = ''
+
+          // 处理搜索结果
+          if (result.results && result.results.length > 0) {
+            resultContent = result.results.map(item =>
+              `[${item.title}](${item.url})\n${item.content}`
+            ).join('\n\n')
+          }
+
+          // 如果有 Tavily 的 answer，添加到内容中
+          if (result.answer) {
+            resultContent = `${result.answer}\n\n${resultContent}`
+          }
+
+          if (resultContent) {
+            const pluginResult = new Message('system', `Here are the results of the internet search :\n${resultContent}`)
+            console.log('[Generator] Processed plugin result:', resultContent)
+            pluginResults.push(pluginResult)
+          }
+        } catch (error) {
+          console.error('[Generator] Fatal error in search execution:', error)
+          pluginResults.push(new Message('system', 'An error occurred while searching. Proceeding with conversation without search results.'))
+        }
+      }
+    }
+    return pluginResults
+  }
 }

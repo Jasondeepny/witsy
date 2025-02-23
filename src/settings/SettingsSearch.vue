@@ -1,4 +1,3 @@
-
 <template>
   <div>
     <div class="description">
@@ -14,6 +13,7 @@
       <select v-model="engine" name="engine" @change="save">
         <option value="local">Local Browser Search (EXPERIMENTAL)</option>
         <option value="tavily">Tavily</option>
+        <option value="brave">Brave Search</option>
       </select>
     </div>
     <div class="group" v-if="engine == 'tavily'">
@@ -21,6 +21,13 @@
       <div class="subgroup">
         <InputObfuscated v-model="tavilyApiKey" name="tavilyApiKey" @change="save" />
         <a href="https://app.tavily.com/home" target="_blank">Get your API key</a>
+      </div>
+    </div>
+    <div class="group" v-if="engine == 'brave'">
+      <label>Brave API Key</label>
+      <div class="subgroup">
+        <InputObfuscated v-model="braveApiKey" name="braveApiKey" @change="save" />
+        <a href="https://api.search.brave.com/app/keys" target="_blank">Get your API key</a>
       </div>
     </div>
     <div class="group">
@@ -43,12 +50,14 @@ const enabled = ref(false)
 const engine = ref('local')
 const contentLength = ref(0)
 const tavilyApiKey = ref(null)
+const braveApiKey = ref(null)
 
 const load = () => {
   enabled.value = store.config.plugins.search.enabled || false
   engine.value = store.config.plugins.search.engine || 'local'
   contentLength.value = store.config.plugins.search.contentLength || 4096
   tavilyApiKey.value = store.config.plugins.search.tavilyApiKey || ''
+  braveApiKey.value = store.config.plugins.search.braveApiKey || ''
 }
 
 const save = () => {
@@ -56,6 +65,7 @@ const save = () => {
   store.config.plugins.search.engine = engine.value
   store.config.plugins.search.contentLength = parseInt(contentLength.value.toString()) ?? 4096
   store.config.plugins.search.tavilyApiKey = tavilyApiKey.value
+  store.config.plugins.search.braveApiKey = braveApiKey.value
   store.saveSettings()
 }
 
