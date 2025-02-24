@@ -3,6 +3,7 @@ import { Configuration } from '../types/config'
 import { DocRepoQueryResponseItem } from '../types/rag'
 import { countryCodeToName } from './i18n'
 import Message from '../models/message'
+import { REFERENCE_PROMPT } from './prompt'
 
 export interface GenerationOpts extends LlmCompletionOpts {
   model: string
@@ -105,6 +106,7 @@ export default class Generator {
 
       // now stream
       this.stopGeneration = false
+      llm.clearPlugins() // 临时清除插件(禁用Function Calling)
       this.stream = await llm.generate(opts.model, conversation, {
         models: this.config.engines[llm.getName()]?.models?.chat,
         autoSwitchVision: this.config.llm.autoVisionSwitch,
@@ -331,18 +333,15 @@ export default class Generator {
 
           // 处理搜索结果
           if (result.results && result.results.length > 0) {
-            resultContent = result.results.map(item =>
-              `[${item.title}](${item.url})\n${item.content}`
-            ).join('\n\n')
+            // resultContent = result.results.map(item =>
+            //   `[${item.title}](${item.url})\n${item.content}`
+            // ).join('\n\n')
+            const referenceContent = `\`\`\`json\n${JSON.stringify(result.results, null, 2)}\n\`\`\``
+            resultContent = REFERENCE_PROMPT.replace('{question}', userMessage.content).replace('{references}', referenceContent)
           }
-
-          // 如果有 Tavily 的 answer，添加到内容中
-          if (result.answer) {
-            resultContent = `${result.answer}\n\n${resultContent}`
-          }
-
+          
           if (resultContent) {
-            const pluginResult = new Message('system', `Here are the results of the internet search :\n${resultContent}`)
+            const pluginResult = new Message('system', resultContent)
             console.log('[Generator] Processed plugin result:', resultContent)
             pluginResults.push(pluginResult)
           }
