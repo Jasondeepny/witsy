@@ -1,4 +1,4 @@
-import { LlmEngine, LlmResponse, LlmChunk } from 'multi-llm-ts'
+import { LlmEngine, LlmResponse, LlmChunk, LlmChunkContent } from 'multi-llm-ts'
 import { removeMarkdown } from '@excalidraw/markdown-to-text'
 import { Configuration } from 'types/config'
 import Chat from '../models/chat'
@@ -16,6 +16,11 @@ export interface AssistantCompletionOpts extends GenerationOpts {
   expert?: Expert
   systemInstructions?: string
   searchQuery?: string
+  searchResults?: Array<{
+    title: string;
+    content: string;
+    url: string;
+  }>;
 }
 
 export default class extends Generator {
@@ -45,7 +50,7 @@ export default class extends Generator {
   }
 
   initLlm(engine: string): void {
-    
+
     // same?
     if (this.llm !== null && this.llm.getName() === engine) {
       return
@@ -81,11 +86,11 @@ export default class extends Generator {
       sources: true,
       systemInstructions: this.config.instructions.default,
       citations: true,
-      searchQuery: prompt  // 确保搜索查询从一开始就被设置
+      searchQuery: prompt// 确保搜索查询从一开始就被设置
     }
     opts = { ...defaults, ...opts }
-    
-    console.log('详细的opts对象:', opts)
+
+    // console.log('详细的opts对象:', opts)
 
     // we need a chat
     if (this.chat === null) {
@@ -166,7 +171,7 @@ export default class extends Generator {
       beforeTitleCallback?.call(null)
       this.chat.title = await this.getTitle() || this.chat.title
     }
-  
+
   }
 
   async _prompt(opts: AssistantCompletionOpts, callback: (chunk: LlmChunk) => void): Promise<GenerationResult> {
@@ -188,14 +193,18 @@ export default class extends Generator {
 
     // normal case: we stream
     if (!this.chat.disableStreaming) {
-      return await this.generate(this.llm, this.chat.messages, {
-        ...opts,
-        ...this.chat.modelOpts,
-      }, callback)
+      try {
+        return await this.generate(this.llm, this.chat.messages, {
+          ...opts,
+          ...this.chat.modelOpts,
+        }, callback)
+      } catch (error) {
+        console.error('[Assistant] Error during generation:', error)
+        return 'error'
+      }
     }
 
     try {
-
       // normal completion
       const response: LlmResponse = await this.llm.complete(this.chat.model, this.chat.messages, {
         usage: true,
@@ -215,14 +224,28 @@ export default class extends Generator {
       this.chat.lastMessage().usage = response.usage
       callback.call(null, chunk)
 
-      // done
-      return 'success'
+      // 非流式模式下，也使用 generate 方法来处理搜索结果
+      if (opts.searchResults?.length > 0) {
+        const referencesText = '\n\n相关引用：\n' + 
+          opts.searchResults.map((result, index) => 
+            `${index + 1}. [${result.title}](${result.url})`
+          ).join('\n')
+        
+        const referencesChunk: LlmChunk = {
+          type: 'content',
+          text: referencesText,
+          done: true
+        }
+        
+        // this.chat.lastMessage().appendText(referencesChunk)
+        callback.call(null, referencesChunk)
+      }
 
+      return 'success'
     } catch (error) {
       console.error('Error while trying to complete', error)
       return 'error'
     }
-
   }
 
   async attach(file: Attachment) {
@@ -277,7 +300,7 @@ export default class extends Generator {
 
       // remove quotes
       title = title.trim().replace(/^"|"$/g, '').trim()
-      
+
       // done
       return title
 
@@ -285,7 +308,7 @@ export default class extends Generator {
       console.error('Error while trying to get title', error)
       return null
     }
-  
+
   }
 
 }

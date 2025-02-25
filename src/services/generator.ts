@@ -9,9 +9,10 @@ export interface GenerationOpts extends LlmCompletionOpts {
   model: string
   docrepo?: string
   sources?: boolean
+  searchResults?: SearchResult[]
 }
 
-export type GenerationResult = 
+export type GenerationResult =
   'success' |
   'missing_api_key' |
   'out_of_credits' |
@@ -74,9 +75,11 @@ export default class Generator {
     const pluginResults = await this.runPlugins(llm, messages, opts)
     console.log('[Generator] Plugin results:', pluginResults)
 
-    // 确保插件结果被添加到消息或上下文中
-    if (pluginResults && pluginResults.length > 0) {
-      conversation.push(...pluginResults)
+    // 添加插件消息到对话中,并将搜索结果存储在一个临时变量中供后续使用
+    if (pluginResults.pluginMessages && pluginResults.pluginMessages.length > 0) {
+      conversation.push(...pluginResults.pluginMessages)
+      //存储在opts 中 在 assistant.ts 中使用
+      opts.searchResults = pluginResults.references
     }
 
     // return code
@@ -86,7 +89,6 @@ export default class Generator {
     const response = messages[messages.length - 1]
 
     try {
-
       // rag?
       let sources: DocRepoQueryResponseItem[] = [];
       if (opts.docrepo) {
@@ -156,24 +158,24 @@ export default class Generator {
       console.error('[Generator] Generation error:', error)
       if (error.name !== 'AbortError') {
         const message = error.message.toLowerCase()
-        
+
         // missing api key
         if ([401, 403].includes(error.status) || message.includes('401') || message.includes('apikey')) {
           response.setText('You need to enter your API key in the Models tab of <a href="#settings_models">Settings</a> in order to chat.')
           rc = 'missing_api_key'
         }
-        
+
         // out of credits
         else if ([400, 402].includes(error.status) && (message.includes('credit') || message.includes('balance'))) {
           response.setText('Sorry, it seems you have run out of credits. Check the balance of your LLM provider account.')
           rc = 'out_of_credits'
-        
-        // quota exceeded
+
+          // quota exceeded
         } else if ([429].includes(error.status) && (message.includes('resource') || message.includes('quota') || message.includes('too many'))) {
           response.setText('Sorry, it seems you have reached the rate limit of your LLM provider account. Try again later.')
           rc = 'quota_exceeded'
 
-        // context length or function description too long
+          // context length or function description too long
         } else if ([400].includes(error.status) && (message.includes('context length') || message.includes('too long'))) {
           if (message.includes('function.description')) {
             response.setText('Sorry, it seems that one of the plugins description is too long. If you tweaked them in Settings | Advanced, please try again.')
@@ -182,23 +184,23 @@ export default class Generator {
             response.setText('Sorry, it seems this message exceeds this model context length. Try to shorten your prompt or try another model.')
             rc = 'context_too_long'
           }
-        
-        // function call not supported
+
+          // function call not supported
         } else if ([400, 404].includes(error.status) && llm.plugins.length > 0 && (message.includes('function call') || message.includes('tools') || message.includes('tool use') || message.includes('tool choice'))) {
           console.log('Model does not support function calling: removing tool and retrying')
           llm.clearPlugins()
           return this.generate(llm, messages, opts, callback)
 
-        // streaming not supported
+          // streaming not supported
         } else if ([400].includes(error.status) && message.includes('\'stream\' does not support true')) {
           rc = 'streaming_not_supported'
 
-        // invalid model
+          // invalid model
         } else if ([404].includes(error.status) && message.includes('model')) {
           response.setText('Sorry, it seems this model is not available.')
           rc = 'invalid_model'
 
-        // final error: depends if we already have some content and if plugins are enabled
+          // final error: depends if we already have some content and if plugins are enabled
         } else {
           if (response.content === '') {
             if (opts.contextWindowSize || opts.maxTokens || opts.temperature || opts.top_k || opts.top_p) {
@@ -277,14 +279,22 @@ export default class Generator {
     return new Promise<void>(resolve => setTimeout(resolve, ms));
   }
 
-  async runPlugins(llm: LlmEngine, messages: Message[], opts: GenerationOpts): Promise<Message[]> {
-    const pluginResults: Message[] = []
+  // 修改 runPlugins 方法返回类型
+  async runPlugins(llm: LlmEngine, messages: Message[], opts: GenerationOpts): Promise<{
+    pluginMessages: Message[],
+    references: SearchResult[]
+  }> {
+    const pluginMessages: Message[] = []
+    let searchResults: SearchResult[] = []
 
     // 查找最后一条用户消息
     const userMessage = messages.findLast(msg => msg.role === 'user')
     if (!userMessage || !userMessage.content?.trim()) {
       console.warn('[Generator] No valid user message found for plugins')
-      return pluginResults
+      return {
+        pluginMessages: [],
+        references: []
+      }
     }
 
     for (const plugin of llm.plugins) {
@@ -336,21 +346,25 @@ export default class Generator {
             // resultContent = result.results.map(item =>
             //   `[${item.title}](${item.url})\n${item.content}`
             // ).join('\n\n')
+            searchResults = result.results
             const referenceContent = `\`\`\`json\n${JSON.stringify(result.results, null, 2)}\n\`\`\``
             resultContent = REFERENCE_PROMPT.replace('{question}', userMessage.content).replace('{references}', referenceContent)
           }
-          
+
           if (resultContent) {
             const pluginResult = new Message('system', resultContent)
             console.log('[Generator] Processed plugin result:', resultContent)
-            pluginResults.push(pluginResult)
+            pluginMessages.push(pluginResult) // 修复变量名,使用正确的 pluginMessages 数组
           }
         } catch (error) {
           console.error('[Generator] Fatal error in search execution:', error)
-          pluginResults.push(new Message('system', 'An error occurred while searching. Proceeding with conversation without search results.'))
+          pluginMessages.push(new Message('system', 'An error occurred while searching. Proceeding with conversation without search results.'))
         }
       }
     }
-    return pluginResults
+    return {
+      pluginMessages,
+      references: searchResults
+    }
   }
 }

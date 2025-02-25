@@ -15,6 +15,7 @@ export default class Message extends MessageBase implements IMessage {
   toolCall?: ToolCallInfo
   usage?: LlmUsage
   declare attachment: Attachment
+  references?: Array<{ title: string, url: string }> 
 
   constructor(role: LlmRole, content?: string) {
     super(role, content)
@@ -56,6 +57,11 @@ export default class Message extends MessageBase implements IMessage {
     } else {
       return `${this.expert.prompt}\n${this.content}`
     }
+  }
+
+  // 添加设置引用的方法
+  setReferences(refs: Array<{ title: string, url: string }>): void {
+    this.references = refs
   }
 
   setText(text: string): void {

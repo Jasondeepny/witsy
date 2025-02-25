@@ -31,6 +31,14 @@
         <span v-if="message.toolCall?.status" class="tool-call">{{ message.toolCall.status }}</span>
       </div>
 
+      <!-- 添加引用链接显示 -->
+      <div v-if="message.references && message.references.length > 0" class="references">
+        <div class="references-title">相关引用：</div>
+        <div v-for="(ref, index) in message.references" :key="index" class="reference-item">
+          {{ index + 1 }}. <a :href="ref.url" target="_blank">{{ ref.title }}</a>
+        </div>
+      </div>
+
     </div>
     <MessageItemActions :message="message" :read-aloud="onReadAloud" :audio-state="audioState" v-if="hovered" />
     <audio ref="audio" />
@@ -213,4 +221,29 @@ img {
   }
 }
 
+.references {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--message-list-separator-color);
+}
+
+.references-title {
+  font-weight: 500;
+  margin-bottom: 8px;
+  color: var(--text-color);
+}
+
+.reference-item {
+  margin-bottom: 6px;
+  color: var(--text-color);
+}
+
+.reference-item a {
+  color: var(--link-color);
+  text-decoration: none;
+}
+
+.reference-item a:hover {
+  text-decoration: underline;
+}
 </style>
