@@ -1,4 +1,4 @@
-import { LlmEngine, LlmResponse, LlmChunk, LlmChunkContent } from 'multi-llm-ts'
+import { LlmEngine, LlmResponse, LlmChunk } from 'multi-llm-ts'
 import { removeMarkdown } from '@excalidraw/markdown-to-text'
 import { Configuration } from 'types/config'
 import Chat from '../models/chat'
@@ -237,7 +237,7 @@ export default class extends Generator {
           done: true
         }
         
-        // this.chat.lastMessage().appendText(referencesChunk)
+        this.chat.lastMessage().appendText(referencesChunk)
         callback.call(null, referencesChunk)
       }
 

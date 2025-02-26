@@ -115,7 +115,6 @@ export default class Generator {
         usage: true,
         ...opts
       })
-      console.log('[Generator] Generation started successfully')
       for await (const msg of this.stream) {
         if (this.stopGeneration) {
           response.appendText({ type: 'content', text: '', done: true })
@@ -136,6 +135,21 @@ export default class Generator {
           callback?.call(null, msg)
         }
       }
+      // 处理搜索结果
+      if (opts.searchResults && opts.searchResults.length > 0) {
+        const referencesText = '\n\n相关引用：\n' +
+          opts.searchResults.map((result, index) =>
+            `${index + 1}. [${result.title}](${result.url})`
+          ).join('\n')
+        const referencesChunk: LlmChunk = {
+          type: 'content',
+          text: referencesText,
+          done: true
+        }
+        response.appendText(referencesChunk)
+        callback?.call(null, referencesChunk)
+      }
+      console.log('[Generator] Generation started successfully')
 
       // append sources
       if (opts.sources && sources && sources.length > 0) {
@@ -150,6 +164,7 @@ export default class Generator {
         // now add them
         let sourcesText = '\n\nSources:\n\n'
         sourcesText += sources.map((source) => `- [${source.metadata.title}](${source.metadata.url})`).join('\n')
+        console.log('[Generator] Sources:', sourcesText)
         response.appendText({ type: 'content', text: sourcesText, done: true })
         callback?.call(null, { type: 'content', text: sourcesText, done: true })
       }

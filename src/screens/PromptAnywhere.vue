@@ -472,7 +472,7 @@ const onResponseResize= (deltaX: number) => {
 
 </script>
 
-<style>
+<style>–
 
 .anywhere {
 
